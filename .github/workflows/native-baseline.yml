@@ -1,0 +1,71 @@
+name: Polymesh public native baseline
+
+# Manual only. No push, pull request, scheduled, or automatic runs.
+"on":
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: polymesh-native-baseline
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout public baseline infrastructure
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Checkout exact unmodified public release
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: PolymeshAssociation/Polymesh
+          ref: d44a84c1634d2fa6e0b3c690c569f43345683a1d
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Restore Linux compilation cache
+        id: cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .ci-cache/cargo/registry
+            .ci-cache/cargo/git
+            upstream/target
+          key: native-v812-linux-x64-${{ hashFiles('upstream/Cargo.lock', 'ci/run_baseline.py') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            native-v812-linux-x64-${{ hashFiles('upstream/Cargo.lock', 'ci/run_baseline.py') }}-
+
+      - name: Compile and run exactly one existing native baseline
+        id: baseline
+        timeout-minutes: 82
+        env:
+          AUTHORIZED_HOSTED_RUNNER: ${{ runner.environment }}
+        run: python3 -B ci/run_baseline.py
+
+      - name: Preserve public baseline build and test output
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-baseline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 1
+
+      - name: Retain completed Linux build cache
+        if: success()
+        timeout-minutes: 5
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .ci-cache/cargo/registry
+            .ci-cache/cargo/git
+            upstream/target
+          key: ${{ steps.cache.outputs.cache-primary-key }}
